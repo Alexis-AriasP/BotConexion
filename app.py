@@ -1,6 +1,7 @@
 import os
 import requests
 from flask import Flask, request, jsonify
+import json
 
 app = Flask(__name__)
 
@@ -9,37 +10,52 @@ DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    req = request.get_json()
-    
-    user_message = req.get('queryResult', {}).get('queryText', '')
-    
-    if not DEEPSEEK_API_KEY:
-        return jsonify({"fulfillmentText": "El servicio no está configurado correctamente."})
-
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": "deepseek-chat",
-        "messages": [
-            {"role": "system", "content": "Eres un asistente académico útil y conciso."},
-            {"role": "user", "content": user_message}
-        ]
-    }
-    
     try:
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload)
-        response.raise_for_status()
+        req = request.get_json()
+        user_message = req.get('queryResult', {}).get('queryText', '')
         
-        ai_response = response.json()['choices'][0]['message']['content']
+        if not DEEPSEEK_API_KEY:
+            return jsonify({"fulfillmentText": "Error: API Key no configurada"})
         
-        return jsonify({"fulfillmentText": ai_response})
         
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "deepseek-chat",  # Este es el más rápido
+            "messages": [
+                {"role": "system", "content": "Responde en español de forma EXTREMADAMENTE CONCISA. Máximo 20 palabras o 2 líneas."},
+                {"role": "user", "content": user_message}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 100, 
+            "top_p": 0.9
+        }
+        
+
+        response = requests.post(
+            DEEPSEEK_API_URL, 
+            headers=headers, 
+            json=payload,
+            timeout=4.5
+        )
+        
+        if response.status_code == 200:
+            ai_response = response.json()['choices'][0]['message']['content']
+            return jsonify({"fulfillmentText": ai_response})
+        else:
+            return jsonify({"fulfillmentText": "Error temporal. Por favor, repite la pregunta."})
+            
+    except requests.exceptions.Timeout:
+
+        return jsonify({
+            "fulfillmentText": "Estoy pensando... ¿Puedes reformular tu pregunta sobre matrices?"
+        })
     except Exception as e:
-        print(f"Error al llamar a DeepSeek: {e}")
-        return jsonify({"fulfillmentText": "Lo siento, hubo un error procesando tu solicitud."})
+        print(f"Error: {str(e)}")
+        return jsonify({"fulfillmentText": "Hubo un problema técnico. Intenta de nuevo."})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
